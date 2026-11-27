@@ -7,7 +7,7 @@ Each plan is a milestone with tracked tasks. Tick a box (`- [x]`) when a task is
 | [P0](P0-scaffold.md) | Project scaffold & local dev loop | — | ✅ |
 | [P1](P1-database.md) | Supabase schema, RLS, repositories | P0 | ✅ local (cloud project pending) |
 | [P2](P2-auth.md) | OAuth 2.1 via Supabase Auth | P0, P1 | ☐ |
-| [P3](P3-llm.md) | LLM provider interface & prompts | P0 | ☐ |
+| [P3](P3-llm.md) | LLM provider interface & prompts | P0 | ✅ |
 | [P4](P4-location-places.md) | Geocoding, timezone, Places + caches | P1 | ☐ |
 | [P5](P5-profile-onboarding.md) | Profile tools & onboarding gate | P1, P3 | ☐ |
 | [P6](P6-preference-model.md) | Preference scoring (pure logic) | P0 | ✅ |

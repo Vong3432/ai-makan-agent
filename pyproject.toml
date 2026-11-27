@@ -7,6 +7,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=1.0",
     "fastmcp>=4.2.6",
     "httpx>=0.28.1",
     "pydantic>=2.14.4",
@@ -35,6 +36,8 @@ makan = "makan.server:main"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+markers = ["eval: real-model LLM evals (cost money); run with `make eval`"]
+addopts = "-m 'not eval'"
 filterwarnings = [
     # Emitted inside supabase-py itself, not our code.
     "ignore:The '(timeout|verify)' parameter is deprecated:DeprecationWarning:supabase",

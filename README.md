@@ -12,6 +12,8 @@ No Python needed on the host — everything runs in Docker.
 
 ## Run locally
 
+Get the API keys first: [docs/SETUP_KEYS.md](docs/SETUP_KEYS.md).
+
 ```bash
 cp .env.example .env
 make dev            # http://localhost:8000/mcp, hot reload

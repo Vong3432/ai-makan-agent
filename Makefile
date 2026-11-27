@@ -1,4 +1,8 @@
-.PHONY: dev down build test lint fmt shell lock inspector db-up db-down db-reset prod-build
+.PHONY: eval dev down build test lint fmt shell lock inspector db-up db-down db-reset prod-build
+
+# Dev containers run on the host's native architecture (fast on Apple Silicon), even if the
+# shell sets DOCKER_DEFAULT_PLATFORM. prod-build pins linux/amd64 explicitly for Cloud Run.
+unexport DOCKER_DEFAULT_PLATFORM
 
 RUN := docker compose run --rm app
 
@@ -13,6 +17,9 @@ build:
 
 test:           ## Run tests in the container
 	$(RUN) pytest -q
+
+eval:           ## Real-model LLM evals (needs ANTHROPIC_API_KEY; costs a few cents)
+	$(RUN) pytest -v -m eval -o log_cli=true -o log_cli_level=INFO tests/evals
 
 lint:           ## Lint + format check in the container
 	$(RUN) sh -c "ruff check . && ruff format --check ."
