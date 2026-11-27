@@ -61,3 +61,17 @@ async def make_user(service: AsyncClient):
     yield _make
     for uid in created:
         await service.auth.admin.delete_user(uid)
+
+
+@pytest.fixture
+async def mcp_user(service: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    """A throwaway user that dev-auth MCP calls run as, so tests never touch the real
+    DEV_USER_ID (the one MCP Inspector uses). Deleted afterwards; its data cascades."""
+    email = f"mcp-{uuid.uuid4().hex[:10]}@makan.local"
+    res = await service.auth.admin.create_user({"email": email, "email_confirm": True})
+    uid = res.user.id
+    monkeypatch.setenv("DEV_USER_ID", uid)
+    get_settings.cache_clear()
+    yield uid
+    await service.auth.admin.delete_user(uid)
+    get_settings.cache_clear()

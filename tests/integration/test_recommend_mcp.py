@@ -4,7 +4,6 @@ import pytest
 from fastmcp import Client
 
 from makan import deps
-from makan.config import get_settings
 from makan.db.models import NewFeedbackEvent, Profile
 from makan.db.repos import BatchRepo, FeedbackRepo, ProfileRepo
 from makan.server import create_mcp
@@ -12,16 +11,8 @@ from tests.unit.test_recommend_tool import FakeGeocoder, FakePlaces, make_llm, o
 
 
 @pytest.fixture
-async def dev_user(service):
-    uid = get_settings().dev_user_id
-
-    async def wipe():
-        for t in ("recommendation_batches", "feedback_events", "profiles"):
-            await service.table(t).delete().eq("user_id", uid).execute()
-
-    await wipe()
-    yield uid
-    await wipe()
+def dev_user(mcp_user):
+    yield mcp_user
     deps.override_llm(None)
     deps.override_location(None)
 

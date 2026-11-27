@@ -1,29 +1,20 @@
-"""End-to-end through the MCP server (dev-auth user) with a fake LLM and the real local DB."""
+"""End-to-end through the MCP server as a throwaway dev-auth user, fake LLM, real local DB."""
 
 import pytest
 from fastmcp import Client
 
 from makan import deps
-from makan.config import get_settings
 from makan.llm.fake import FakeLLM
 from makan.server import create_mcp
 
 
 @pytest.fixture
-async def clean_dev_user(service):
-    uid = get_settings().dev_user_id
-
-    async def wipe():
-        await service.table("feedback_events").delete().eq("user_id", uid).execute()
-        await service.table("profiles").delete().eq("user_id", uid).execute()
-
-    await wipe()
-    yield
-    await wipe()
+def fake_llm_reset(mcp_user):
+    yield mcp_user
     deps.override_llm(None)
 
 
-async def test_update_and_get_profile_over_mcp(clean_dev_user):
+async def test_update_and_get_profile_over_mcp(fake_llm_reset):
     deps.override_llm(
         FakeLLM(
             {
