@@ -133,7 +133,11 @@ class DishContext(BaseModel):
 DISHES_SYSTEM = f"""You propose meal candidates for a food-recommendation agent.
 Suggest dishes people commonly eat at that meal time and are realistically available near
 the given location (use local cuisine knowledge). Respect the request if given.
-Do not propose dishes that typically contain the user's allergens or break their dietary rules.
+Every dish is checked afterwards by a strict safety checker, so do not propose a dish if a
+common version of it contains one of the user's allergens, including garnishes, sauces and
+sides (e.g. peanuts with nasi lemak, satay sauce, rojak or gado-gado dressing for peanut;
+belacan or dried shrimp for shellfish), or breaks one of their dietary rules (e.g. bak kut teh,
+char siu or anything with pork or lard for halal).
 Mix familiar favourites (based on likes) with a few the user may not have tried.
 Avoid the dislikes and the recently shown dishes. Return exactly the requested count,
 each a distinct dish.
@@ -157,6 +161,13 @@ async def propose_dishes(llm: LLMProvider, ctx: DishContext) -> DishCandidates:
 
 class DishCheck(LLMOut):
     dish: str
+    # Comes before the verdicts on purpose: naming the source first stops blanket flagging
+    # (without it, a list of only safe dishes got every dish flagged).
+    evidence: str = Field(
+        "",
+        description="For each flagged allergen or rule, the specific common ingredient or "
+        "component that carries it (e.g. 'peanut: crushed peanuts in sambal'); 'none' if none",
+    )
     likely_contains: list[str] = Field(
         description="Which of the listed allergens the dish commonly or plausibly contains"
     )
@@ -170,12 +181,20 @@ class SafetyCheck(LLMOut):
 
 
 SAFETY_SYSTEM = f"""You are a cautious food-safety checker.
+Judge every dish on its own, independently of the other dishes in the list.
 For every dish, list which of the user's allergens it commonly or plausibly contains,
 including hidden sources (e.g. shrimp paste/belacan -> shellfish, satay sauce -> peanut,
 soy sauce -> soy/wheat, egg noodles -> egg, ghee -> dairy, fish sauce -> fish).
-When unsure, flag it: a false alarm is acceptable, a miss is not.
-Also list which of the user's dietary rules each dish commonly breaks
-(e.g. lard or pork -> halal/no pork; chicken stock -> vegetarian).
+First write the evidence: the specific ingredient, sauce, garnish or side that carries the
+allergen in common versions of the dish. Flag an allergen only when you can name such an
+ingredient. If a common version includes it, flag it even if some versions don't: a false
+alarm is acceptable, a miss is not. Cross-contact, shared equipment and frying oil alone are
+not reasons to flag (users are always told to confirm with the vendor).
+Also list which of the user's dietary rules each dish commonly breaks, by the same standard:
+only when a common version of the dish itself contains a non-compliant ingredient
+(e.g. pork, lard or char siu -> halal/no pork; rice wine -> halal; chicken stock ->
+vegetarian; beef -> no beef). Whether a particular stall is certified or uses compliant
+ingredients is a question for the vendor, not a reason to flag.
 Only use allergens and rules from the provided lists. Return one result per dish,
 with the dish name exactly as given.
 {_DATA_RULE}"""

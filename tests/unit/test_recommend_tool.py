@@ -59,6 +59,7 @@ class MemBatches:
     def __init__(self, history: list[tuple[datetime, Recommendation]] | None = None) -> None:
         self.created: list[Batch] = []
         self.history = history or []
+        self.now = NOW  # created_at for new batches; tests move it forward
 
     async def create(self, batch, recs):
         bid = uuid4()
@@ -70,14 +71,18 @@ class MemBatches:
             **batch.model_dump(),
             id=bid,
             user_id=UUID(USER),
-            created_at=NOW,
+            created_at=self.now,
             recommendations=saved,
         )
         self.created.append(b)
         return b
 
     async def recommendations_since(self, since):
-        return [(at, r) for at, r in self.history if at >= since]
+        made = [(b.created_at, r) for b in self.created for r in b.recommendations]
+        return [(at, r) for at, r in self.history + made if at >= since]
+
+    async def recent(self, limit=3):
+        return sorted(self.created, key=lambda b: b.created_at, reverse=True)[:limit]
 
 
 def shown(dish_name, days_ago, place_id=None) -> tuple[datetime, Recommendation]:
@@ -411,3 +416,31 @@ async def test_duplicate_proposals_are_merged():
 )
 def test_budget_to_price_level(budget, currency, level):
     assert budget_to_price_level(budget, currency) == level
+
+
+async def test_top_up_round_when_safety_rejects_most_dishes():
+    rounds = [DISHES, [DISHES[0], dish("Mee Rebus", "Malay"), dish("Sup Ayam", "Malay")]]
+
+    def propose(_user):
+        return {"dishes": rounds.pop(0)}
+
+    flagged = {d["dish"]: ["peanut"] for d in DISHES[:4]}  # 1 of 5 survives round one
+    llm = make_llm(check=safety(flagged))
+    llm.responses["propose_dishes"] = propose
+    out, _ = await run(llm=llm)
+
+    assert out["status"] == "ok"
+    assert {o["dish"] for o in out["options"]} == {"Banana Leaf Rice", "Mee Rebus", "Sup Ayam"}
+    assert out["excluded_for_safety"] == 4
+    jobs = [c.job for c in llm.calls]
+    assert jobs.count("propose_dishes") == 2 and jobs.count("check_safety") == 2
+    second = [c for c in llm.calls if c.job == "propose_dishes"][1].user
+    assert '"satay"' in second and '"nasi lemak"' in second  # told to avoid what it tried
+    # only new dishes were re-checked
+    last_check = [c for c in llm.calls if c.job == "check_safety"][1].user
+    assert "Nasi Lemak" not in last_check
+
+
+async def test_no_top_up_when_enough_dishes_survive():
+    out, d = await run()
+    assert [c.job for c in d["llm"].calls].count("propose_dishes") == 1

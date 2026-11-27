@@ -156,27 +156,34 @@ async def recommend_meal(
         if not (request and d in norm(request))  # asked for again by name
     )
 
-    # --- P7-T4 candidate dishes ---
-    proposed = await propose_dishes(
-        llm,
-        DishContext(
-            meal_slot=slot,
-            local_time=local.strftime("%A %H:%M"),
-            location=location,
-            request=request,
-            allergies=profile.allergies,
-            dietary_rules=profile.dietary_rules,
-            health_goals=profile.health_goals,
-            likes=[t for t, _ in summary.likes],
-            dislikes=[t for t, _ in summary.dislikes],
-            avoid_dishes=avoid,
-            count=CANDIDATE_COUNT,
-        ),
+    # --- P7-T4 candidate dishes, P7-T5 hard filters (never relaxed) ---
+    ctx = DishContext(
+        meal_slot=slot,
+        local_time=local.strftime("%A %H:%M"),
+        location=location,
+        request=request,
+        allergies=profile.allergies,
+        dietary_rules=profile.dietary_rules,
+        health_goals=profile.health_goals,
+        likes=[t for t, _ in summary.likes],
+        dislikes=[t for t, _ in summary.dislikes],
+        avoid_dishes=avoid,
+        count=CANDIDATE_COUNT,
     )
-    dishes = _dedupe(proposed.dishes)
-
-    # --- P7-T5 hard filters (never relaxed) ---
+    dishes = _dedupe((await propose_dishes(llm, ctx)).dishes)
     safe, excluded_count = await _hard_filter(llm, dishes, profile)
+    if len(safe) < 3:
+        # Strict allergy/diet checks can reject most proposals. Ask once more for
+        # different dishes (never relax the filter itself).
+        tried_names = {norm(d.dish) for d in dishes}
+        more = await propose_dishes(
+            llm, ctx.model_copy(update={"avoid_dishes": sorted(set(avoid) | tried_names)})
+        )
+        extra = [d for d in _dedupe(more.dishes) if norm(d.dish) not in tried_names]
+        if extra:
+            extra_safe, extra_excluded = await _hard_filter(llm, extra, profile)
+            safe += extra_safe
+            excluded_count += extra_excluded
     if not safe:
         return {
             "status": "no_safe_options",

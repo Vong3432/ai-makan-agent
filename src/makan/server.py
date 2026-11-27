@@ -9,6 +9,7 @@ from starlette.applications import Starlette
 from makan import deps
 from makan.auth import build_auth_provider, current_user
 from makan.config import get_settings
+from makan.tools import feedback as feedback_tools
 from makan.tools import profile as profile_tools
 from makan.tools import recommend as recommend_tools
 
@@ -65,6 +66,23 @@ def create_mcp() -> FastMCP:
             geocoder=loc.geocoder,
             places=loc.places,
             now=datetime.now(UTC),
+        )
+
+    @mcp.tool
+    async def give_feedback(message: str) -> dict[str, Any]:
+        """Record how a meal was, in the user's own words, so future picks learn from it.
+
+        Use when the user says how a recommended (or any other) meal was, e.g. "the laksa
+        was great", "first one too oily", "had nasi lemak today, loved it". Several meals in
+        one message are fine. Pass the message as-is.
+
+        Show the user the returned `message`. If `profile_hint` is set, the user stated an
+        allergy, dietary rule or other profile fact: confirm it with them and call
+        update_profile — feedback never changes allergies or dietary rules.
+        """
+        d = await deps.user_deps()
+        return await feedback_tools.give_feedback(
+            message, llm=deps.llm(), feedback=d.feedback, batches=d.batches
         )
 
     @mcp.tool

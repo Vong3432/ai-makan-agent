@@ -12,6 +12,9 @@ log = logging.getLogger(__name__)
 
 MAX_TOKENS = 4000
 TIMEOUT_S = 60.0  # first use of a new schema adds compile time (cached 24h)
+# Effort per job (default "low"). Haiku 5.5 rejects non-default temperature, so more
+# thinking is the lever for steadier verdicts on the safety-critical check.
+JOB_EFFORT = {"check_safety": "medium"}
 
 
 class AnthropicProvider:
@@ -39,7 +42,7 @@ class AnthropicProvider:
             # Stable per-job system prompt first, marked for caching.
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user}],
-            output_config={"effort": "low"},
+            output_config={"effort": JOB_EFFORT.get(job, "low")},
             output_format=schema,
         )
         log.info(

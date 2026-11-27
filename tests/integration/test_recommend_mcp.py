@@ -43,7 +43,21 @@ async def test_recommend_meal_over_mcp(service, dev_user):
             ]
         ]
     )
-    deps.override_llm(make_llm())
+    llm = make_llm()
+    llm.responses["extract_feedback"] = {
+        "items": [
+            {
+                "matched_ref": "b1.1",
+                "dish": None,
+                "place_name": None,
+                "meal_slot": None,
+                "tags": ["tasty"],
+                "score": 2,
+            }
+        ],
+        "profile_hint": None,
+    }
+    deps.override_llm(llm)
     deps.override_location(
         deps.LocationDeps(
             FakeGeocoder(), FakePlaces({"laksa": [place("L")], "satay": [place("S")]})
@@ -53,9 +67,16 @@ async def test_recommend_meal_over_mcp(service, dev_user):
     async with Client(create_mcp()) as client:
         assert "recommend_meal" in {t.name for t in await client.list_tools()}
         out = (await client.call_tool("recommend_meal", {"location": "Bangsar"})).data
+        fb = (await client.call_tool("give_feedback", {"message": "first was great"})).data
 
     assert out["status"] == "ok" and len(out["options"]) == 3
     batches = await BatchRepo(service, dev_user).recent(1)
     assert [r.dish for r in batches[0].recommendations] == [o["dish"] for o in out["options"]]
     prof = await ProfileRepo(service, dev_user).get()
     assert prof and prof.timezone == "Asia/Kuala_Lumpur"
+
+    first = batches[0].recommendations[0]
+    assert fb["recorded"][0]["matched_recommendation"] is True
+    events = [e for e in await FeedbackRepo(service, dev_user).list() if e.source == "feedback"]
+    assert len(events) == 1 and events[0].recommendation_id == first.id
+    assert events[0].score == 2 and "tasty" in events[0].tags
