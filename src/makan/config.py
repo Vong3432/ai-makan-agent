@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # Google Places
     google_api_key: SecretStr = SecretStr("")
+    # Biases Places results toward this country (CLDR code); empty = no bias.
+    places_region_code: str = "MY"
 
     # LLM
     anthropic_api_key: SecretStr = SecretStr("")
