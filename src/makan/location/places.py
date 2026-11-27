@@ -7,11 +7,13 @@ Cache design
 - The search area is the cell centre + bucket radius + half the cell diagonal, so it
   covers the user's circle wherever they are in the cell. Results are then filtered by
   haversine distance from the user's actual point.
-- TTL 7 days. `open_now` is only meaningful when fresh, so cache hits return it as None.
+- TTL 7 days. Opening state is stored as the place's weekly hours (`weekly_hours`) so it
+  can be worked out at request time with `open_at`; the point-in-time `open_now` from a
+  fresh search is dropped on cache hits because it goes stale.
 """
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
@@ -35,13 +37,14 @@ PLACES_FIELD_MASK = ",".join(
         "places.types",
         "places.rating",
         "places.currentOpeningHours.openNow",
+        "places.regularOpeningHours.periods",
         "places.priceLevel",
     ]
 )
 CACHE_TTL = timedelta(days=7)
 GEOHASH_PRECISION = 6
 RADIUS_BUCKETS_KM = (1, 2, 3, 5, 10, 20, 50)
-CACHE_VERSION = "v1"
+CACHE_VERSION = "v2"  # v2: weekly_hours added
 
 _PRICE_LEVELS = {
     "PRICE_LEVEL_FREE": 0,
@@ -64,7 +67,10 @@ class Place(BaseModel):
     lng: float
     types: list[str] = []
     rating: float | None = None
-    open_now: bool | None = None
+    open_now: bool | None = None  # from a fresh search only; prefer open_at()
+    # Weekly opening periods as [open, close] minutes from Sunday 00:00 in the place's
+    # local time; close None = open around the clock. None = hours unknown.
+    weekly_hours: list[tuple[int, int | None]] | None = None
     price_level: int | None = None  # 0 (free) .. 4 (very expensive)
     distance_km: float | None = None  # from the user's point; set by `find`
 
@@ -102,8 +108,45 @@ def parse_place(raw: dict[str, Any]) -> Place | None:
         types=raw.get("types") or [],
         rating=raw.get("rating"),
         open_now=(raw.get("currentOpeningHours") or {}).get("openNow"),
+        weekly_hours=_parse_periods((raw.get("regularOpeningHours") or {}).get("periods")),
         price_level=_PRICE_LEVELS.get(raw.get("priceLevel", "")),
     )
+
+
+WEEK_MINUTES = 7 * 24 * 60
+
+
+def _minute_of_week(point: dict[str, Any]) -> int:
+    return int(point["day"]) * 1440 + int(point.get("hour", 0)) * 60 + int(point.get("minute", 0))
+
+
+def _parse_periods(periods: Any) -> list[tuple[int, int | None]] | None:
+    """Google `regularOpeningHours.periods` (day 0 = Sunday) -> minute-of-week ranges."""
+    if not periods:
+        return None
+    out: list[tuple[int, int | None]] = []
+    try:
+        for p in periods:
+            close = p.get("close")
+            out.append((_minute_of_week(p["open"]), _minute_of_week(close) if close else None))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return out
+
+
+def open_at(place: Place, local: datetime) -> bool | None:
+    """Is the place open at `local` (wall-clock time where the place is)?
+    Uses weekly hours when known, else a fresh `open_now`, else None (unknown)."""
+    if place.weekly_hours is None:
+        return place.open_now
+    now = ((local.weekday() + 1) % 7) * 1440 + local.hour * 60 + local.minute  # Sunday = 0
+    for start, end in place.weekly_hours:
+        if end is None:
+            return True
+        length = (end - start) % WEEK_MINUTES
+        if (now - start) % WEEK_MINUTES < length:
+            return True
+    return False
 
 
 def within_radius(places: list[Place], origin: LatLng, radius_km: float) -> list[Place]:
@@ -130,6 +173,7 @@ class PlacesFinder:
 
         cached = await self.cache.get_places(key, CACHE_TTL)
         if cached is not None:
+            # open_now is a snapshot from fetch time; weekly_hours stays valid.
             places = [Place.model_validate({**p, "open_now": None}) for p in cached]
         else:
             places = await self._fetch(key, cuisine, radius_km)

@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -25,6 +25,8 @@ from makan.location.places import (
     PlacesFinder,
     cache_key,
     maps_url,
+    open_at,
+    parse_place,
     radius_bucket,
 )
 from makan.location.timezone import timezone_at
@@ -192,7 +194,7 @@ def test_missing_key_rejected():
 
 def test_cache_key_shape():
     k = cache_key(KLCC, "Nasi Lemak", 1.5)
-    assert k == f"v1:{geohash_encode(KLCC.lat, KLCC.lng, 6)}:nasi_lemak:2"
+    assert k == f"v2:{geohash_encode(KLCC.lat, KLCC.lng, 6)}:nasi_lemak:2"
     # same cell, same cuisine, same bucket -> same key
     nearby = LatLng(KLCC.lat + 0.0005, KLCC.lng)
     if geohash_encode(nearby.lat, nearby.lng, 6) == geohash_encode(KLCC.lat, KLCC.lng, 6):
@@ -285,4 +287,81 @@ def test_maps_url_encodes_name_and_place_id():
     assert url == (
         "https://www.google.com/maps/search/?api=1&query=Nasi+Lemak+%26+Co+"
         "%E8%81%9A%E5%BE%97%E5%A5%BD&query_place_id=ChIJ123"
+    )
+
+
+# ---------- opening hours ----------
+
+
+def period(od, oh, cd=None, ch=None, om=0, cm=0):
+    p = {"open": {"day": od, "hour": oh, "minute": om}}
+    if cd is not None:
+        p["close"] = {"day": cd, "hour": ch, "minute": cm}
+    return p
+
+
+def with_hours(periods, open_now=None):
+    raw = raw_place("x", KLCC, regularOpeningHours={"periods": periods})
+    if open_now is not None:
+        raw["currentOpeningHours"] = {"openNow": open_now}
+    return parse_place(raw)
+
+
+# 2026-11-27 is a Friday (Google day 5), 2026-11-28 Saturday (6), 2026-11-29 Sunday (0).
+def at(day, hh, mm=0):
+    return datetime(2026, 11, day, hh, mm)
+
+
+def test_open_at_regular_hours():
+    p = with_hours([period(d, 11, d, 22) for d in range(7)])  # 11:00-22:00 daily
+    assert open_at(p, at(27, 12)) is True
+    assert open_at(p, at(27, 10, 59)) is False
+    assert open_at(p, at(27, 22, 0)) is False  # close is exclusive
+    assert open_at(p, at(28, 3)) is False
+
+
+def test_open_at_past_midnight_and_week_wrap():
+    # Saturday 18:00 -> Sunday 02:00 (wraps past the end of the Google week)
+    p = with_hours([period(6, 18, 0, 2)])
+    assert open_at(p, at(28, 23, 30)) is True  # Sat night
+    assert open_at(p, at(29, 1, 59)) is True  # Sun early
+    assert open_at(p, at(29, 2, 0)) is False
+    assert open_at(p, at(27, 23)) is False  # Friday: closed
+
+
+def test_open_at_24_hours_and_unknown():
+    assert open_at(with_hours([period(0, 0)]), at(28, 4)) is True  # no close = 24/7
+    unknown = parse_place(raw_place("y", KLCC))
+    assert unknown.weekly_hours is None and open_at(unknown, at(28, 12)) is None
+    fresh = parse_place(raw_place("z", KLCC, currentOpeningHours={"openNow": False}))
+    assert open_at(fresh, at(28, 12)) is False  # falls back to fresh open_now
+
+
+def test_malformed_periods_mean_unknown():
+    assert with_hours([{"open": {"hour": 9}}]).weekly_hours is None
+
+
+@respx.mock
+async def test_cached_places_keep_weekly_hours(http):
+    route = respx.post(TEXT_SEARCH_URL).respond(
+        200,
+        json={
+            "places": [
+                raw_place(
+                    "p1",
+                    KLCC,
+                    currentOpeningHours={"openNow": True},
+                    regularOpeningHours={"periods": [period(d, 11, d, 22) for d in range(7)]},
+                )
+            ]
+        },
+    )
+    finder = PlacesFinder(MemCache(), http)
+    await finder.find(KLCC, "malay", 2)
+    (cached,) = await finder.find(KLCC, "malay", 2)
+    assert route.call_count == 1
+    assert cached.open_now is None  # stale snapshot dropped
+    assert open_at(cached, at(28, 12)) is True and open_at(cached, at(28, 23)) is False
+    assert (
+        "places.regularOpeningHours.periods" in route.calls.last.request.headers["X-Goog-FieldMask"]
     )

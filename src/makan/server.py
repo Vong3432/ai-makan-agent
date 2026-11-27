@@ -45,7 +45,8 @@ def create_mcp() -> FastMCP:
         - `meal_slot`: breakfast | lunch | tea | dinner | supper. Omit to infer from the
           local time at the location.
         - `request`: optional nuance in the user's words, e.g. "something soupy",
-          "walking distance", "can drive".
+          "walking distance", "can drive", "open now" (then only places open right
+          now are suggested).
 
         Show the user the returned `message`. If `status` is "needs_onboarding", ask the
         listed questions and save the answers with update_profile, then try again. If

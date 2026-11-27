@@ -7,6 +7,7 @@ score + variety + select three -> reasons + allergen notes -> persist -> respond
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Protocol, get_args
@@ -47,7 +48,7 @@ from makan.llm.jobs import (
 from makan.location.geo import LatLng
 from makan.location.geocode import GeoPoint
 from makan.location.google import PlacesAPIError
-from makan.location.places import Place, maps_url
+from makan.location.places import Place, maps_url, open_at
 from makan.location.radius import clamp, resolve_radius
 from makan.tools.profile import FeedbackStore, ProfileStore, load_profile, onboarding_gate
 
@@ -62,6 +63,17 @@ MIN_RATING = 3.5  # places rated below this are skipped (unrated places are kept
 WIDEN_FACTOR = 2.0
 
 VALID_SLOTS: tuple[str, ...] = get_args(MealSlot)
+
+_OPEN_NOW = re.compile(
+    r"\b(open(?:ed)?\s+(?:right\s+)?now|open\s+at\s+the\s+moment|currently\s+open|"
+    r"open\s+currently|still\s+open|(?:that|which)\s+(?:is|are)\s+open|not\s+closed)\b",
+    re.I,
+)
+
+
+def wants_open_now(request: str | None) -> bool:
+    """The user asked for places that are open right now."""
+    return bool(request and _OPEN_NOW.search(request))
 
 
 class BatchStore(Protocol):
@@ -221,12 +233,20 @@ async def recommend_meal(
             queries.append(q)
     queries = queries[:MAX_PLACE_QUERIES]
     found = await _lookup_places(places, origin, queries, radius_km)
-    check_open = slot == current_slot  # open-now only matters when eating now
+    # Opening state is judged at the local time now (weekly hours work for cached places).
+    # "Open now" in the request: only places known to be open. Eating now without
+    # asking: drop places known to be closed. A later meal: hours don't apply.
+    open_only = wants_open_now(request)
+    check_open = open_only or slot == current_slot
 
     placed: list[_Option] = []
     for d in safe:
         ps = found.get(norm(d.places_query or d.cuisine), [])
-        ps = [p for p in ps if not (check_open and p.open_now is False)]
+        ps = [p.model_copy(update={"open_now": open_at(p, local)}) for p in ps]
+        if open_only:
+            ps = [p for p in ps if p.open_now is True]
+        elif check_open:
+            ps = [p for p in ps if p.open_now is not False]
         ps = [p for p in ps if p.rating is None or p.rating >= MIN_RATING]
         ps.sort(key=_place_quality, reverse=True)
         placed += [_Option(d, p) for p in ps[:PLACES_PER_DISH]]
@@ -277,7 +297,9 @@ async def recommend_meal(
         for i, (s, o) in enumerate(chosen, start=1)
     ]
     no_places = all(o["place"] is None for o in options)
-    widen = _widen(radius_km) if no_places else None
+    some_missing = any(o["place"] is None for o in options)
+    # With "open now", a dish without a place means nothing open nearby serves it.
+    widen = _widen(radius_km) if no_places or (open_only and some_missing) else None
     return {
         "status": "ok",
         "batch_id": str(batch.id),
@@ -291,9 +313,10 @@ async def recommend_meal(
         "radius_km": radius_km,
         "options": options,
         "no_places_found": no_places,
+        "open_now_only": open_only,
         "suggested_radius_km": widen,
         "excluded_for_safety": excluded_count,
-        "message": _message(slot, location, radius_km, options, widen),
+        "message": _message(slot, location, radius_km, options, widen, open_only),
     }
 
 
@@ -419,7 +442,7 @@ def _allergen_note(profile: Profile) -> str | None:
 
 
 def _place_json(p: Place | None, *, show_open: bool) -> dict[str, Any] | None:
-    """`open_now` is only reported when the meal is now; for a later meal it's misleading."""
+    """`open_now` is only reported when it matters now; for a later meal it's misleading."""
     if p is None:
         return None
     return {
@@ -442,6 +465,7 @@ def _message(
     radius_km: float,
     options: list[dict[str, Any]],
     widen: float | None,
+    open_only: bool = False,
 ) -> str:
     lines = [f"{slot.capitalize()} ideas near {location} (within {radius_km:g} km):"]
     for o in options:
@@ -452,7 +476,9 @@ def _message(
             if p["distance_km"] is not None:
                 where += f" ({p['distance_km']:.1f} km"
                 where += f", ★{p['rating']:g})" if p["rating"] is not None else ")"
-            if p["open_now"] is False:
+            if p["open_now"] is True:
+                where += " — open now"
+            elif p["open_now"] is False:
                 where += " — closed now"
         tag = " [new for you]" if o["is_explore"] else ""
         lines.append(f"{o['position']}. {o['dish']}{where}{tag} — {o['reason']}")
@@ -461,9 +487,15 @@ def _message(
     note = next((o["allergen_note"] for o in options if o["allergen_note"]), None)
     if note:
         lines.append(note)
-    if widen:
+    if widen and open_only and any(o["place"] for o in options):
         lines.append(
-            f"I couldn't find a suitable place within {radius_km:g} km. "
+            f"Options without a place: nothing open right now within {radius_km:g} km "
+            f"serves them. Want me to search within {widen:g} km instead?"
+        )
+    elif widen:
+        what = "a place that's open right now" if open_only else "a suitable place"
+        lines.append(
+            f"I couldn't find {what} within {radius_km:g} km. "
             f"Want me to search within {widen:g} km instead?"
         )
     lines.append("Tell me how it was afterwards and I'll learn your taste.")

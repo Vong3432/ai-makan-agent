@@ -18,6 +18,7 @@
 - [x] **P7-T11** Response shape: compact JSON + short human-readable summary for the host to present.
 - [x] **P7-T12** Integration test with `FakeLLM` + mocked Places: happy path, fallback path, allergen-excluded path, repetition path.
 - [x] **P7-T13** Each recommended place includes a copyable Google Maps link (`place.maps_url`), also printed in `message`.
+- [x] **P7-T14** "Open now" requests return only places open at the local time, including cached places (weekly hours).
 
 ## Done when
 
@@ -29,7 +30,8 @@
 - **One path for normal and fallback results:** every safe dish becomes a candidate with each of its top 3 places *and* as a dish-only candidate with a −1.0 penalty; `select_three` keeps the best version of each dish. All three dish-only → `no_places_found` + `suggested_radius_km` (×2, at least +2 km).
 - **Cost cap:** Places is queried for at most 5 distinct `places_query` values, chosen by a dish-only pre-score. Typical call: 3 LLM calls (propose, safety, reasons) + ≤5 Places searches (fewer when cached).
 - **Safety:** with dietary rules set, a dish missing from the safety-check results is excluded (mirrors P6's rule for allergies). The check is skipped when there are no allergies or rules. With allergies, every option carries the "confirm with the vendor" note.
-- **Places:** rated below 3.5 skipped (unrated kept); ordered by rating minus 0.15 per km. `open_now == False` excludes a place only when the slot is the current one; for a later slot `open_now` is not reported.
+- **Places:** rated below 3.5 skipped (unrated kept); ordered by rating minus 0.15 per km.
+- **Opening hours:** each place's open state is worked out at the local time from its weekly hours (works for cached places). "Open now" in `request` (`wants_open_now`: "open now", "currently open", "still open"…) keeps only places known to be open, even when another `meal_slot` is passed; the response sets `open_now_only`. Eating now without asking drops places known to be closed but keeps unknown ones. For a later meal, hours are ignored and `open_now` isn't reported. With "open now", options left without a place get an explanation and a wider-radius offer.
 - **Budget:** `domain/budget.py` maps budget + currency to Google's price level (MYR, SGD, IDR, THB, USD, EUR, GBP, AUD; others → no budget penalty).
 - **Explicit requests:** a dish named in `request` bypasses the repeat rule, is removed from the LLM's avoid list, and gets +3.0 so it wins.
 - `write_reasons` failure falls back to a template reason; it never fails the recommendation.

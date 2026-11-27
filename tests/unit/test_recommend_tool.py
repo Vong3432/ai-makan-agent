@@ -451,3 +451,87 @@ async def test_top_up_round_when_safety_rejects_most_dishes():
 async def test_no_top_up_when_enough_dishes_survive():
     out, d = await run()
     assert [c.job for c in d["llm"].calls].count("propose_dishes") == 1
+
+
+# ---------------------------------------------------------------------- open now
+
+
+def hours(open_h, close_h):
+    """Same hours every day, as weekly_hours minute ranges."""
+    return [(d * 1440 + open_h * 60, d * 1440 + close_h * 60) for d in range(7)]
+
+
+@pytest.mark.parametrize(
+    ("request_text", "expected"),
+    [
+        ("show me places open now", True),
+        ("only restaurants opened right now", True),
+        ("something currently open", True),
+        ("which are open at the moment?", True),
+        ("still open please", True),
+        ("open to anything", False),
+        ("something soupy", False),
+        (None, False),
+    ],
+)
+def test_wants_open_now(request_text, expected):
+    assert rec.wants_open_now(request_text) is expected
+
+
+def laksa_places():
+    # NOW is 12:30 local. Cached-style places: open_now None, weekly hours known.
+    return FakePlaces(
+        {
+            "laksa": [
+                place("closed", rating=4.9).model_copy(update={"weekly_hours": hours(18, 23)}),
+                place("unknown", rating=4.8),
+                place("open", rating=4.0).model_copy(update={"weekly_hours": hours(11, 15)}),
+            ]
+        }
+    )
+
+
+async def test_open_now_request_keeps_only_places_known_to_be_open():
+    out, _ = await run(
+        places=laksa_places(), llm=make_llm(dishes=[DISHES[1]]), request="open now please"
+    )
+    p = out["options"][0]["place"]
+    assert p["place_id"] == "open" and p["open_now"] is True
+    assert out["open_now_only"] is True
+    assert "open now" in out["message"]
+
+
+async def test_open_now_applies_even_for_an_explicit_other_slot():
+    out, _ = await run(
+        places=laksa_places(),
+        llm=make_llm(dishes=[DISHES[1]]),
+        meal_slot="dinner",
+        request="currently open",
+    )
+    assert out["options"][0]["place"]["place_id"] == "open"
+
+
+async def test_eating_now_drops_closed_but_keeps_unknown():
+    out, _ = await run(places=laksa_places(), llm=make_llm(dishes=[DISHES[1]]))
+    # "closed" is best rated but closed at 12:30 (cached hours); "unknown" is next best
+    assert out["options"][0]["place"]["place_id"] == "unknown"
+
+
+async def test_open_now_with_nothing_open_offers_wider_radius():
+    places = FakePlaces(
+        {"laksa": [place("closed").model_copy(update={"weekly_hours": hours(18, 23)})]}
+    )
+    out, _ = await run(places=places, llm=make_llm(dishes=[DISHES[1]]), request="open now")
+    assert out["no_places_found"] and out["options"][0]["place"] is None
+    assert "open right now within 3 km" in out["message"]
+
+
+async def test_open_now_partial_explains_dishes_without_a_place():
+    places = FakePlaces(
+        {"laksa": [place("open").model_copy(update={"weekly_hours": hours(11, 15)})]}
+    )
+    out, _ = await run(places=places, request="open now")
+    with_place = [o for o in out["options"] if o["place"]]
+    assert [o["place"]["place_id"] for o in with_place] == ["open"]
+    assert out["suggested_radius_km"] == 6 and not out["no_places_found"]
+    assert "Options without a place: nothing open right now within 3 km" in out["message"]
