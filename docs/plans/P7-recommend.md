@@ -17,6 +17,7 @@
 - [x] **P7-T10** Persist batch + 3 recommendations.
 - [x] **P7-T11** Response shape: compact JSON + short human-readable summary for the host to present.
 - [x] **P7-T12** Integration test with `FakeLLM` + mocked Places: happy path, fallback path, allergen-excluded path, repetition path.
+- [x] **P7-T13** Each recommended place includes a copyable Google Maps link (`place.maps_url`), also printed in `message`.
 
 ## Done when
 
@@ -33,3 +34,4 @@
 - **Explicit requests:** a dish named in `request` bypasses the repeat rule, is removed from the LLM's avoid list, and gets +3.0 so it wins.
 - `write_reasons` failure falls back to a template reason; it never fails the recommendation.
 - Live-checked (Claude Haiku 5.5 + Places + local Supabase): onboarding then two `recommend_meal` calls for Bangsar, 7–10 s each on a cold cache; peanut/halal exclusions applied; "walking distance" → 1 km; "soupy" → soups.
+- Each place carries `maps_url`, a Google Maps link in the official Maps URLs format (`/maps/search/?api=1&query=<name>&query_place_id=<id>`). It's built locally: no extra API field or cost, and it works for cached places. The text `message` prints it under each option.

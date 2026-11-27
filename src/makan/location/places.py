@@ -13,6 +13,7 @@ Cache design
 import re
 from datetime import timedelta
 from typing import Any, Protocol
+from urllib.parse import urlencode
 
 from pydantic import BaseModel
 
@@ -66,6 +67,14 @@ class Place(BaseModel):
     open_now: bool | None = None
     price_level: int | None = None  # 0 (free) .. 4 (very expensive)
     distance_km: float | None = None  # from the user's point; set by `find`
+
+
+def maps_url(place_id: str, name: str) -> str:
+    """Google Maps link that opens this exact place (official Maps URLs format, free,
+    no API call; works for cached places too)."""
+    return "https://www.google.com/maps/search/?" + urlencode(
+        {"api": "1", "query": name, "query_place_id": place_id}
+    )
 
 
 def normalise_cuisine(cuisine: str) -> str:

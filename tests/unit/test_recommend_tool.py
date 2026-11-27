@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 import pytest
@@ -208,6 +209,11 @@ async def test_happy_path_three_options_with_places():
     assert [o["position"] for o in opts] == [1, 2, 3]
     assert len({o["dish"] for o in opts}) == 3
     assert all(o["place"] and o["place"]["name"].startswith("Place p-") for o in opts)
+    for o in opts:
+        url = o["place"]["maps_url"]
+        assert url.startswith("https://www.google.com/maps/search/?api=1&")
+        assert urlencode({"query_place_id": o["place"]["place_id"]}) in url
+        assert url in out["message"]
     assert all(o["reason"].startswith("why ") for o in opts)
     assert sum(o["is_explore"] for o in opts) == 1  # one explore pick
     assert all("confirm with the vendor" in o["allergen_note"] for o in opts)
@@ -281,6 +287,7 @@ async def test_no_places_falls_back_to_dish_only_and_offers_wider_radius():
     out, d = await run(places=FakePlaces({}))
     assert out["status"] == "ok" and out["no_places_found"]
     assert len(out["options"]) == 3 and all(o["place"] is None for o in out["options"])
+    assert "Map:" not in out["message"]
     assert out["suggested_radius_km"] == 6
     assert "within 6 km" in out["message"]
     assert all(r.place_id is None for r in d["batches"].created[0].recommendations)

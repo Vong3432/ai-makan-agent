@@ -47,7 +47,7 @@ from makan.llm.jobs import (
 from makan.location.geo import LatLng
 from makan.location.geocode import GeoPoint
 from makan.location.google import PlacesAPIError
-from makan.location.places import Place
+from makan.location.places import Place, maps_url
 from makan.location.radius import clamp, resolve_radius
 from makan.tools.profile import FeedbackStore, ProfileStore, load_profile, onboarding_gate
 
@@ -428,6 +428,7 @@ def _place_json(p: Place | None, *, show_open: bool) -> dict[str, Any] | None:
         "distance_km": p.distance_km,
         "rating": p.rating,
         "open_now": p.open_now if show_open else None,
+        "maps_url": maps_url(p.place_id, p.name),
     }
 
 
@@ -455,6 +456,8 @@ def _message(
                 where += " — closed now"
         tag = " [new for you]" if o["is_explore"] else ""
         lines.append(f"{o['position']}. {o['dish']}{where}{tag} — {o['reason']}")
+        if p:
+            lines.append(f"   Map: {p['maps_url']}")
     note = next((o["allergen_note"] for o in options if o["allergen_note"]), None)
     if note:
         lines.append(note)

@@ -50,7 +50,8 @@ def create_mcp() -> FastMCP:
         Show the user the returned `message`. If `status` is "needs_onboarding", ask the
         listed questions and save the answers with update_profile, then try again. If
         `suggested_radius_km` is set, offer to search again with that radius (pass it in
-        `request`, e.g. "within 6 km"). Never drop an `allergen_note`.
+        `request`, e.g. "within 6 km"). Never drop an `allergen_note`. Keep each place's
+        `maps_url` so the user can open it.
         """
         d = await deps.user_deps()
         loc = await deps.location_deps()

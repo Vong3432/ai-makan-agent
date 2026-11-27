@@ -24,6 +24,7 @@ from makan.location.places import (
     Place,
     PlacesFinder,
     cache_key,
+    maps_url,
     radius_bucket,
 )
 from makan.location.timezone import timezone_at
@@ -277,3 +278,11 @@ async def test_billable_calls_logged(http, caplog):
 def test_place_model_defaults():
     p = Place(place_id="x", name="X", lat=0, lng=0)
     assert p.open_now is None and p.types == []
+
+
+def test_maps_url_encodes_name_and_place_id():
+    url = maps_url("ChIJ123", "Nasi Lemak & Co 聚得好")
+    assert url == (
+        "https://www.google.com/maps/search/?api=1&query=Nasi+Lemak+%26+Co+"
+        "%E8%81%9A%E5%BE%97%E5%A5%BD&query_place_id=ChIJ123"
+    )
