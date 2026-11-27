@@ -1,15 +1,21 @@
 """FastMCP server: app construction and tool registration."""
 
+from datetime import UTC, datetime
+from typing import Any
+
 from fastmcp import FastMCP
 from starlette.applications import Starlette
 
+from makan import deps
 from makan.auth import build_auth_provider, current_user
 from makan.config import get_settings
+from makan.tools import profile as profile_tools
 
 INSTRUCTIONS = (
     "AI Makan Agent recommends meals (breakfast, lunch, tea, dinner, supper) "
     "personalised to the user's habits, preferences and allergies, near a location "
-    "the user gives."
+    "the user gives. Pass the user's own words to tools; the server interprets them. "
+    "Always show the user the `message` field of tool results."
 )
 
 
@@ -25,6 +31,39 @@ def create_mcp() -> FastMCP:
     def ping() -> dict[str, str]:
         """Health check. Returns 'ok' and the caller's user id."""
         return {"status": "ok", "user_id": current_user().user_id}
+
+    @mcp.tool
+    async def update_profile(message: str) -> dict[str, Any]:
+        """Update the user's food profile from what they said, in their own words.
+
+        Use whenever the user states allergies, dietary rules (halal, vegetarian, no beef…),
+        foods they love or dislike, budget per meal, how far they'll travel, spice tolerance,
+        meals they usually skip, dine-in vs delivery, health goals, or usual meal times.
+        Also use to answer onboarding questions.
+
+        Show the user the returned `message`. If `safety_changes` is not empty, ask the user
+        to confirm them (allergies and dietary rules are safety-critical).
+        """
+        d = await deps.user_deps()
+        return await profile_tools.update_profile(
+            message,
+            user_id=d.user.user_id,
+            llm=deps.llm(),
+            profiles=d.profiles,
+            feedback=d.feedback,
+        )
+
+    @mcp.tool
+    async def get_profile() -> dict[str, Any]:
+        """Show what the agent knows about the user: allergies, dietary rules, habits,
+        top learned likes/dislikes, and any onboarding questions still unanswered."""
+        d = await deps.user_deps()
+        return await profile_tools.get_profile(
+            user_id=d.user.user_id,
+            profiles=d.profiles,
+            feedback=d.feedback,
+            now=datetime.now(UTC),
+        )
 
     return mcp
 

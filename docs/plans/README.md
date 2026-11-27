@@ -9,7 +9,7 @@ Each plan is a milestone with tracked tasks. Tick a box (`- [x]`) when a task is
 | [P2](P2-auth.md) | OAuth 2.1 via Supabase Auth | P0, P1 | ☐ |
 | [P3](P3-llm.md) | LLM provider interface & prompts | P0 | ✅ |
 | [P4](P4-location-places.md) | Geocoding, timezone, Places + caches | P1 | ☐ |
-| [P5](P5-profile-onboarding.md) | Profile tools & onboarding gate | P1, P3 | ☐ |
+| [P5](P5-profile-onboarding.md) | Profile tools & onboarding gate | P1, P3 | ✅ |
 | [P6](P6-preference-model.md) | Preference scoring (pure logic) | P0 | ✅ |
 | [P7](P7-recommend.md) | `recommend_meal` pipeline | P3, P4, P5, P6 | ☐ |
 | [P8](P8-feedback.md) | `give_feedback` | P3, P6, P7 | ☐ |

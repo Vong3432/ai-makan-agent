@@ -108,6 +108,19 @@ class FeedbackRepo(_UserRepo):
         res = await q.order("created_at", desc=True).execute()
         return [FeedbackEvent.model_validate(r) for r in res.data]
 
+    async def profile_item_counts(self) -> tuple[int, int]:
+        """Distinct loved / disliked dishes stated via update_profile (onboarding counts)."""
+        res = (
+            await self.db.table("feedback_events")
+            .select("dish, score")
+            .eq("user_id", self.user_id)
+            .eq("source", "profile")
+            .execute()
+        )
+        loves = {r["dish"].strip().lower() for r in res.data if r["dish"] and r["score"] > 0}
+        dislikes = {r["dish"].strip().lower() for r in res.data if r["dish"] and r["score"] < 0}
+        return len(loves), len(dislikes)
+
 
 class UsageRepo(_UserRepo):
     async def increment(self, day: date) -> int:

@@ -59,8 +59,12 @@ class Batch(NewBatch):
     recommendations: list[Recommendation] = Field(default_factory=list)
 
 
+FeedbackSource = Literal["feedback", "profile"]
+
+
 class NewFeedbackEvent(BaseModel):
     raw_message: str
+    source: FeedbackSource = "feedback"
     recommendation_id: UUID | None = None
     dish: str | None = None
     place_id: str | None = None
