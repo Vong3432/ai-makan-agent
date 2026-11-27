@@ -1,0 +1,52 @@
+[project]
+name = "makan"
+version = "0.1.0"
+description = "AI Makan Agent — meal recommendation MCP server"
+authors = [
+    { name = "vong3432", email = "vongnyuksoon2000@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=4.2.6",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.4",
+    "pydantic-settings>=2.16.3",
+    "supabase>=2.34.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "respx>=0.23.1",
+    "hypothesis",
+    "pytest-cov",
+    "ruff>=0.17.6",
+]
+
+[project.scripts]
+makan = "makan.server:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = [
+    # Emitted inside supabase-py itself, not our code.
+    "ignore:The '(timeout|verify)' parameter is deprecated:DeprecationWarning:supabase",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.ruff.lint.isort]
+known-third-party = ["supabase"]
+known-first-party = ["makan"]

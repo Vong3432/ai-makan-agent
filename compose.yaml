@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      target: dev
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AUTH_MODE: ${AUTH_MODE:-dev}
+    volumes:
+      # Whole project mounted for hot reload and `make lock`; venv lives at /opt/venv, untouched.
+      - .:/app
+    extra_hosts:
+      # Reach local Supabase (`supabase start`) running on the host.
+      - "host.docker.internal:host-gateway"
