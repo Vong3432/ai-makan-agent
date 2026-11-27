@@ -10,6 +10,7 @@ from makan import deps
 from makan.auth import build_auth_provider, current_user
 from makan.config import get_settings
 from makan.tools import profile as profile_tools
+from makan.tools import recommend as recommend_tools
 
 INSTRUCTIONS = (
     "AI Makan Agent recommends meals (breakfast, lunch, tea, dinner, supper) "
@@ -31,6 +32,40 @@ def create_mcp() -> FastMCP:
     def ping() -> dict[str, str]:
         """Health check. Returns 'ok' and the caller's user id."""
         return {"status": "ok", "user_id": current_user().user_id}
+
+    @mcp.tool
+    async def recommend_meal(
+        location: str, meal_slot: str | None = None, request: str | None = None
+    ) -> dict[str, Any]:
+        """Recommend 3 meal options (dish + a nearby place) personalised to the user.
+
+        - `location` (required): where the user is or will eat, in their words, e.g.
+          "Bangsar" or "near KLCC". Ask the user if you don't know it.
+        - `meal_slot`: breakfast | lunch | tea | dinner | supper. Omit to infer from the
+          local time at the location.
+        - `request`: optional nuance in the user's words, e.g. "something soupy",
+          "walking distance", "can drive".
+
+        Show the user the returned `message`. If `status` is "needs_onboarding", ask the
+        listed questions and save the answers with update_profile, then try again. If
+        `suggested_radius_km` is set, offer to search again with that radius (pass it in
+        `request`, e.g. "within 6 km"). Never drop an `allergen_note`.
+        """
+        d = await deps.user_deps()
+        loc = await deps.location_deps()
+        return await recommend_tools.recommend_meal(
+            location,
+            meal_slot,
+            request,
+            user_id=d.user.user_id,
+            llm=deps.llm(),
+            profiles=d.profiles,
+            feedback=d.feedback,
+            batches=d.batches,
+            geocoder=loc.geocoder,
+            places=loc.places,
+            now=datetime.now(UTC),
+        )
 
     @mcp.tool
     async def update_profile(message: str) -> dict[str, Any]:
